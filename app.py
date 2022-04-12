@@ -6,7 +6,6 @@ import pandas as pd
 from utils.disease import disease_dic
 from utils.fertilizer import fertilizer_dic
 import requests
-import config
 import pickle
 import io
 import torch
@@ -76,30 +75,6 @@ crop_recommendation_model = pickle.load(
 
 # Custom functions for calculations
 
-
-def weather_fetch(city_name):
-    """
-    Fetch and returns the temperature and humidity of a city
-    :params: city_name
-    :return: temperature, humidity
-    """
-    api_key = config.weather_api_key
-    base_url = "http://api.openweathermap.org/data/2.5/weather?"
-
-    complete_url = base_url + "appid=" + api_key + "&q=" + city_name
-    response = requests.get(complete_url)
-    x = response.json()
-
-    if x["cod"] != "404":
-        y = x["main"]
-
-        temperature = round((y["temp"] - 273.15), 2)
-        humidity = y["humidity"]
-        return temperature, humidity
-    else:
-        return None
-
-
 def predict_image(img, model=disease_model):
     """
     Transforms image to tensor and predicts disease label
@@ -133,7 +108,7 @@ app = Flask(__name__)
 
 @ app.route('/')
 def home():
-    title = 'Harvestify - Home'
+    title = 'Agro-Farm Care - Home'
     return render_template('index.html', title=title)
 
 # render crop recommendation form page
@@ -141,7 +116,7 @@ def home():
 
 @ app.route('/crop-recommend')
 def crop_recommend():
-    title = 'Harvestify - Crop Recommendation'
+    title = 'Agro-Farm Care - Crop Recommendation'
     return render_template('crop.html', title=title)
 
 # render fertilizer recommendation form page
@@ -149,7 +124,7 @@ def crop_recommend():
 
 @ app.route('/fertilizer')
 def fertilizer_recommendation():
-    title = 'Harvestify - Fertilizer Suggestion'
+    title = 'Agro-Farm Care - Fertilizer Suggestion'
 
     return render_template('fertilizer.html', title=title)
 
@@ -167,36 +142,29 @@ def fertilizer_recommendation():
 
 @ app.route('/crop-predict', methods=['POST'])
 def crop_prediction():
-    title = 'Harvestify - Crop Recommendation'
+    title = 'Agro-Farm Care - Crop Recommendation'
 
     if request.method == 'POST':
         N = int(request.form['nitrogen'])
         P = int(request.form['phosphorous'])
         K = int(request.form['pottasium'])
+        temperature = float(request.form['rainfall'])
+        humidity = float(request.form['humidity'])
         ph = float(request.form['ph'])
         rainfall = float(request.form['rainfall'])
+        data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
+        my_prediction = crop_recommendation_model.predict(data)
+        final_prediction = my_prediction[0]
 
-        # state = request.form.get("stt")
-        city = request.form.get("city")
+        return render_template('crop-result.html', prediction=final_prediction, title=title)
 
-        if weather_fetch(city) != None:
-            temperature, humidity = weather_fetch(city)
-            data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
-            my_prediction = crop_recommendation_model.predict(data)
-            final_prediction = my_prediction[0]
-
-            return render_template('crop-result.html', prediction=final_prediction, title=title)
-
-        else:
-
-            return render_template('try_again.html', title=title)
 
 # render fertilizer recommendation result page
 
 
 @ app.route('/fertilizer-predict', methods=['POST'])
 def fert_recommend():
-    title = 'Harvestify - Fertilizer Suggestion'
+    title = 'Agro-Farm Care  - Fertilizer Suggestion'
 
     crop_name = str(request.form['cropname'])
     N = int(request.form['nitrogen'])
@@ -209,29 +177,37 @@ def fert_recommend():
     nr = df[df['Crop'] == crop_name]['N'].iloc[0]
     pr = df[df['Crop'] == crop_name]['P'].iloc[0]
     kr = df[df['Crop'] == crop_name]['K'].iloc[0]
-
+    l=[]
     n = nr - N
     p = pr - P
     k = kr - K
-    temp = {abs(n): "N", abs(p): "P", abs(k): "K"}
-    max_value = temp[max(temp.keys())]
-    if max_value == "N":
-        if n < 0:
-            key = 'NHigh'
-        else:
-            key = "Nlow"
-    elif max_value == "P":
-        if p < 0:
-            key = 'PHigh'
-        else:
-            key = "Plow"
-    else:
-        if k < 0:
-            key = 'KHigh'
-        else:
-            key = "Klow"
 
-    response = Markup(str(fertilizer_dic[key]))
+    
+    if n < 0:
+        key = 'NHigh'
+    elif n > 0:
+        key = "Nlow"
+    else:
+        key = "NOk"
+    l1 = str(fertilizer_dic[key])
+    
+    if p < 0:
+        key = 'PHigh'
+    elif p > 0:
+        key = "Plow"
+    else:
+        key = "POk"
+    l2 = str(fertilizer_dic[key])
+    
+    if k < 0:
+        key = 'KHigh'
+    elif k > 0:
+        key = "Klow"
+    else:
+        key = "KOk"
+    l3 = str(fertilizer_dic[key])
+    
+    response = Markup(l1+l2+l3)
 
     return render_template('fertilizer-result.html', recommendation=response, title=title)
 
@@ -240,11 +216,9 @@ def fert_recommend():
 
 @app.route('/disease-predict', methods=['GET', 'POST'])
 def disease_prediction():
-    title = 'Harvestify - Disease Detection'
+    title = 'Agro-Farm Care - Disease Detection'
 
     if request.method == 'POST':
-        if 'file' not in request.files:
-            return redirect(request.url)
         file = request.files.get('file')
         if not file:
             return render_template('disease.html', title=title)
